@@ -80,8 +80,13 @@ RUN test -x /opt/rocm/bin/hipcc \
 
 RUN python3 -m venv .venv \
     && .venv/bin/pip install --no-cache-dir --upgrade pip \
-    && .venv/bin/pip install --no-cache-dir -r requirements.txt \
+    && .venv/bin/pip install --no-cache-dir -r terminal/requirements.txt \
     && chmod +x setup.sh docker-entrypoint.sh
+
+# v0.2.19-poly.1 keeps its Python entry points in terminal/ (polystrata.py at the root is a stub that
+# hands over to it) while this recipe predates that move: point the build steps and the entry point at
+# the package root, and install the requirements from there.
+ENV PYTHONPATH=/opt/strata/terminal
 
 # llama.cpp at the pinned commit, then the engine built exactly the way
 # setup.py's build_engine_hip() builds it (same defs, same BUILD.json stamp), so
