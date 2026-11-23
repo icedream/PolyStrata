@@ -97,6 +97,10 @@ RUN .venv/bin/python - <<'PYEOF'
 import json, os, pathlib, shutil
 import setup
 
+# 0.2.16 moved the Python sources into terminal/, so setup.py's own ROOT is /opt/strata/terminal while
+# the engine sources and the engine folder stay at the tree root. Point the build at the root.
+setup.ROOT = pathlib.Path("/opt/strata")
+
 
 # Target all maintainer- and community-validated archs for a fat build by default.
 # Narrow to one for a faster build or add your own (e.g. gfx1030).
@@ -140,7 +144,8 @@ if os.environ.get("BUILD_VISION", "1") == "1":
 PYEOF
 
 # the cmake trees are build-time only; the engine itself is what the container needs
-RUN rm -rf build build-hip build-vision
+RUN rm -rf build build-hip build-vision && \
+    ln -sfn /opt/strata/engine /opt/strata/terminal/engine
 
 VOLUME ["/data"]
 EXPOSE 8080
