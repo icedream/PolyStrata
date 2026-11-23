@@ -81,7 +81,7 @@ RUN test -x /opt/rocm/bin/hipcc \
 RUN python3 -m venv .venv \
     && .venv/bin/pip install --no-cache-dir --upgrade pip \
     && .venv/bin/pip install --no-cache-dir -r terminal/requirements.txt \
-    && chmod +x setup.sh docker-entrypoint.sh
+    && chmod +x setup.sh terminal/docker-entrypoint.sh
 
 # v0.2.19-poly.1 keeps its Python entry points in terminal/ (polystrata.py at the root is a stub that
 # hands over to it) while this recipe predates that move: point the build steps and the entry point at
@@ -152,4 +152,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=600s --retries=3 \
   CMD curl -fs "http://127.0.0.1:${PORT:-8080}/health" || exit 1
 
-ENTRYPOINT ["./docker-entrypoint.sh"]
+ENTRYPOINT ["./terminal/docker-entrypoint.sh"]
