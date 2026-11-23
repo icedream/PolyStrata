@@ -115,7 +115,7 @@ os.environ.update({"HIP_PLATFORM": "amd", "HIP_COMPILER": "clang", "HIP_RUNTIME"
 os.environ["LD_LIBRARY_PATH"] = os.pathsep.join(libs + [os.environ.get("LD_LIBRARY_PATH", "")]).rstrip(os.pathsep)
 os.environ["PATH"] = os.pathsep.join([str(root / "bin"), str(root / "llvm" / "bin"), os.environ.get("PATH", "")])
 
-setup.cmake_build(setup.ROOT, setup.ROOT / "build-hip", "strata",
+setup.cmake_build(setup.ROOT / "engine", setup.ROOT / "build-hip", "strata",
     ["-DSTRATA_ENABLE_HIP=ON", "-DSTRATA_ENABLE_CUDA=OFF", "-DSTRATA_Q6K_EXPERTS=ON", "-DSTRATA_MMQ_KQUANTS=ON", "-DSTRATA_BUILD_TESTS=OFF",
      "-DSTRATA_PREFILL_MMQ=ON", "-DCMAKE_HIP_ARCHITECTURES=" + ";".join(archs),
      f"-DCMAKE_HIP_COMPILER={root / 'llvm' / 'bin' / 'clang++'}",
@@ -124,7 +124,7 @@ setup.cmake_build(setup.ROOT, setup.ROOT / "build-hip", "strata",
      f"-DCMAKE_HIP_FLAGS=--rocm-path={root} --rocm-device-lib-path={bitcode}",
      f"-DSTRATA_GGML_DIR={llama}"], None, "")
 
-setup.cmake_build(setup.ROOT, setup.ROOT / "build-hip", "tune_hipblaslt", [], None, "")
+setup.cmake_build(setup.ROOT / "engine", setup.ROOT / "build-hip", "tune_hipblaslt", [], None, "")
 
 eng = setup.ROOT / "engine"
 eng.mkdir(exist_ok=True)
