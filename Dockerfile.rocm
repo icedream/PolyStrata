@@ -92,7 +92,7 @@ WORKDIR /opt/strata/terminal
 # the first container start reuses the image engine instead of recompiling.
 # Vision encoder remains CPU-only for now on HIP; tools/vision is built
 # without CUDA here.
-RUN .venv/bin/python - <<'PYEOF'
+RUN /opt/strata/.venv/bin/python - <<'PYEOF'
 import json, os, pathlib, shutil
 import setup
 
