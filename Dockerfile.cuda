@@ -1,0 +1,88 @@
+# syntax=docker/dockerfile:1
+#
+# PolyStrata on NVIDIA: the CUDA build. Upstream ships no CUDA Dockerfile at v0.2.20-poly.6 (only
+# Dockerfile.rocm), so this file is ours.
+#
+# Two engines are built: the qwen engine is not needed for the Inkling family, which runs on
+# strata-poly (setup's "engine": "poly"), so only that one is compiled here to keep the image small.
+#
+# The engine is compiled during docker build and lands in terminal/engine-poly, where poly's setup
+# expects it (ENGINE_POLY_DIR). The container start path is PolyStrata's own entry point; the cluster
+# runs terminal/serve/server.py from a finished config instead.
+#
+# Build (no GPU needed). The default targets sm_75, the RTX 2060:
+#   docker build -f Dockerfile -t strata-poly:cuda .
+#   docker build -f Dockerfile --build-arg CUDA_ARCHITECTURES=89 -t strata-poly:cuda .
+#
+# Run: --gpus all (or --device nvidia.com/gpu=0) is what the card needs; see docs/DOCKER.md.
+
+ARG UBUNTU_VERSION=24.04
+ARG CUDA_VERSION=12.8.1
+ARG BASE_IMAGE=docker.io/nvidia/cuda:${CUDA_VERSION}-devel-ubuntu${UBUNTU_VERSION}
+FROM ${BASE_IMAGE}
+
+LABEL org.opencontainers.image.title="PolyStrata (CUDA)" \
+      org.opencontainers.image.source="https://github.com/simplexai-labs/PolyStrata"
+
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 LANG=C.UTF-8 STRATA_EXECV=1 BACKEND=cuda
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential ca-certificates curl git libatomic1 libgomp1 \
+        python3 python3-pip python3-venv unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/strata
+COPY . .
+
+ARG CUDA_ARCHITECTURES=75
+ARG BUILD_VISION=0
+
+RUN python3 -m venv .venv \
+    && .venv/bin/pip install --no-cache-dir --upgrade pip \
+    && .venv/bin/pip install --no-cache-dir -r terminal/requirements.txt \
+    && chmod +x setup.sh tools/docker/entrypoint.sh
+
+# 0.2.20 moved setup.py and the requirements under terminal/, so the build runs there: setup.ROOT is
+# terminal/ and engine_src() resolves the cmake tree at /opt/strata/engine.
+WORKDIR /opt/strata/terminal
+
+# The definition list is setup's own CUDA list for strata-poly (build_engine_poly_cuda): the vendored
+# ggml is the default, so no STRATA_GGML_DIR is passed. STRATA_BUILD_POLY defaults ON.
+RUN CUDA_ARCHITECTURES="$CUDA_ARCHITECTURES" BUILD_VISION="$BUILD_VISION" /opt/strata/.venv/bin/python - <<'PYEOF'
+import json, os, shutil
+import setup
+
+src = setup.engine_src()
+archs = [a for a in os.environ.get("CUDA_ARCHITECTURES", "75").replace(",", ";").split(";") if a]
+nvcc = "/usr/local/cuda/bin/nvcc"
+if not os.path.exists(nvcc):
+    raise SystemExit(f"ERROR: no CUDA compiler at {nvcc}")
+
+setup.cmake_build(src, setup.ROOT / "build-cuda", "strata-poly",
+    ["-DSTRATA_ENABLE_CUDA=ON", "-DSTRATA_ENABLE_HIP=OFF", "-DSTRATA_BUILD_TESTS=OFF",
+     "-DSTRATA_Q6K_EXPERTS=ON", "-DSTRATA_MMQ_KQUANTS=ON",
+     "-DCMAKE_CUDA_ARCHITECTURES=" + ";".join(archs),
+     f"-DCMAKE_CUDA_COMPILER={nvcc}", "-DSTRATA_PORTABLE=OFF"], None, "")
+
+eng = setup.ROOT / setup.ENGINE_POLY_DIR
+eng.mkdir(exist_ok=True)
+shutil.copy2(setup.ROOT / "build-cuda" / setup.POLY_EXE, eng / setup.POLY_EXE)
+meta = {"source": "local", "version": setup.source_version(), "archs": archs,
+        "toolkit": 13 if min(int(a) for a in archs) >= 120 else 12,
+        "cuda_dirs": [d for d in ("/usr/local/cuda/bin", "/usr/local/cuda/lib64") if os.path.isdir(d)],
+        "src": setup.source_hash(setup.ENGINE_SOURCES), "vision": "none", "vision_src": None}
+(eng / "BUILD.json").write_text(json.dumps(meta, indent=1))
+print("strata-poly built:", eng / setup.POLY_EXE)
+PYEOF
+
+WORKDIR /opt/strata
+RUN rm -rf terminal/build-cuda
+
+VOLUME ["/data"]
+EXPOSE 8080
+
+# /health is answered before the API key gate, so it works with or without one.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=600s --retries=3 \
+  CMD curl -fs "http://127.0.0.1:${PORT:-8080}/health" || exit 1
+
+ENTRYPOINT ["./tools/docker/entrypoint.sh"]
