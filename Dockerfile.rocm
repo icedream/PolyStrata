@@ -80,8 +80,12 @@ RUN test -x /opt/rocm/bin/hipcc \
 
 RUN python3 -m venv .venv \
     && .venv/bin/pip install --no-cache-dir --upgrade pip \
-    && .venv/bin/pip install --no-cache-dir -r requirements.txt \
-    && chmod +x setup.sh docker-entrypoint.sh
+    && .venv/bin/pip install --no-cache-dir -r terminal/requirements.txt \
+    && chmod +x setup.sh tools/docker/entrypoint.sh
+
+# 0.2.20 moved setup.py, serve/ and the requirements under terminal/, so the build steps run
+# there: setup.ROOT is terminal/ and the engine lands in terminal/engine.
+WORKDIR /opt/strata/terminal
 
 # llama.cpp at the pinned commit, then the engine built exactly the way
 # setup.py's build_engine_hip() builds it (same defs, same BUILD.json stamp), so
@@ -135,7 +139,8 @@ if os.environ.get("BUILD_VISION", "1") == "1":
 PYEOF
 
 # the cmake trees are build-time only; the engine itself is what the container needs
-RUN rm -rf build build-hip build-vision
+WORKDIR /opt/strata
+RUN rm -rf terminal/build terminal/build-hip terminal/build-vision
 
 VOLUME ["/data"]
 EXPOSE 8080
@@ -147,4 +152,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=600s --retries=3 \
   CMD curl -fs "http://127.0.0.1:${PORT:-8080}/health" || exit 1
 
-ENTRYPOINT ["./docker-entrypoint.sh"]
+ENTRYPOINT ["./tools/docker/entrypoint.sh"]
