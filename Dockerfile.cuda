@@ -48,11 +48,15 @@ nvcc = "/usr/local/cuda/bin/nvcc"
 if not os.path.exists(nvcc):
     raise SystemExit(f"ERROR: no CUDA compiler at {nvcc}")
 
+# Pascal (6.x) and Volta (7.0) need STRATA_EXPERIMENTAL_SM60, which is what PolyStrata's own
+# setup passes for a card older than sm_75 (CUDA13_MIN_ARCH). CUDA 12 compiles those archs.
+pascal = ["-DSTRATA_EXPERIMENTAL_SM60=ON"] if min(int(a.split("-")[0]) for a in archs) < 75 else []
+
 setup.cmake_build(src, setup.ROOT / "build-cuda", "strata-poly",
     ["-DSTRATA_ENABLE_CUDA=ON", "-DSTRATA_ENABLE_HIP=OFF", "-DSTRATA_BUILD_TESTS=OFF",
      "-DSTRATA_Q6K_EXPERTS=ON", "-DSTRATA_MMQ_KQUANTS=ON",
      "-DCMAKE_CUDA_ARCHITECTURES=" + ";".join(archs),
-     f"-DCMAKE_CUDA_COMPILER={nvcc}", "-DSTRATA_PORTABLE=OFF"], None, "")
+     f"-DCMAKE_CUDA_COMPILER={nvcc}", "-DSTRATA_PORTABLE=OFF", *pascal], None, "")
 
 # The qwen engine as well: PolyStrata's setup refuses to start a model when no engine component is
 # installed, Inkling included, and the component manifest below lists both binaries.
@@ -60,7 +64,7 @@ setup.cmake_build(src, setup.ROOT / "build-cuda", "strata",
     ["-DSTRATA_ENABLE_CUDA=ON", "-DSTRATA_ENABLE_HIP=OFF", "-DSTRATA_BUILD_TESTS=OFF",
      "-DSTRATA_Q6K_EXPERTS=ON", "-DSTRATA_MMQ_KQUANTS=ON",
      "-DCMAKE_CUDA_ARCHITECTURES=" + ";".join(archs),
-     f"-DCMAKE_CUDA_COMPILER={nvcc}", "-DSTRATA_PORTABLE=OFF"], None, "")
+     f"-DCMAKE_CUDA_COMPILER={nvcc}", "-DSTRATA_PORTABLE=OFF", *pascal], None, "")
 
 eng = setup.ROOT / setup.ENGINE_POLY_DIR
 eng.mkdir(exist_ok=True)
