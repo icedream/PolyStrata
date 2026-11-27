@@ -3,28 +3,22 @@
 # PolyStrata on NVIDIA: the CUDA build. Upstream ships no CUDA Dockerfile at v0.2.20-poly.6 (only
 # Dockerfile.rocm), so this file is ours.
 #
-# Two engines are built: the qwen engine is not needed for the Inkling family, which runs on
-# strata-poly (setup's "engine": "poly"), so only that one is compiled here to keep the image small.
+# Two stages, because the card this runs on (RTX 2060, 6 GB) is on a node with a few GB free: the
+# CUDA toolkit is only needed to compile strata-poly, and the runtime stage carries no compiler.
 #
-# The engine is compiled during docker build and lands in terminal/engine-poly, where poly's setup
-# expects it (ENGINE_POLY_DIR). The container start path is PolyStrata's own entry point; the cluster
-# runs terminal/serve/server.py from a finished config instead.
+# strata-poly is the engine the Inkling family runs on (setup's "engine": "poly"); the qwen engine is
+# not built here. The binary lands in terminal/engine-poly, where poly's setup expects it.
 #
-# Build (no GPU needed). The default targets sm_75, the RTX 2060:
-#   docker build -f Dockerfile -t strata-poly:cuda .
-#   docker build -f Dockerfile --build-arg CUDA_ARCHITECTURES=89 -t strata-poly:cuda .
-#
-# Run: --gpus all (or --device nvidia.com/gpu=0) is what the card needs; see docs/DOCKER.md.
+# Build (no GPU needed). The default targets sm_75:
+#   docker build -f Dockerfile.cuda -t strata-poly:cuda .
+#   docker build -f Dockerfile.cuda --build-arg CUDA_ARCHITECTURES=89 -t strata-poly:cuda .
 
 ARG UBUNTU_VERSION=24.04
 ARG CUDA_VERSION=12.8.1
-ARG BASE_IMAGE=docker.io/nvidia/cuda:${CUDA_VERSION}-devel-ubuntu${UBUNTU_VERSION}
-FROM ${BASE_IMAGE}
 
-LABEL org.opencontainers.image.title="PolyStrata (CUDA)" \
-      org.opencontainers.image.source="https://github.com/simplexai-labs/PolyStrata"
+FROM docker.io/nvidia/cuda:${CUDA_VERSION}-devel-ubuntu${UBUNTU_VERSION} AS build
 
-ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 LANG=C.UTF-8 STRATA_EXECV=1 BACKEND=cuda
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 LANG=C.UTF-8
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential ca-certificates curl git libatomic1 libgomp1 \
@@ -35,20 +29,16 @@ WORKDIR /opt/strata
 COPY . .
 
 ARG CUDA_ARCHITECTURES=75
-ARG BUILD_VISION=0
-
-RUN python3 -m venv .venv \
-    && .venv/bin/pip install --no-cache-dir --upgrade pip \
-    && .venv/bin/pip install --no-cache-dir -r terminal/requirements.txt \
-    && chmod +x setup.sh tools/docker/entrypoint.sh
 
 # 0.2.20 moved setup.py and the requirements under terminal/, so the build runs there: setup.ROOT is
-# terminal/ and engine_src() resolves the cmake tree at /opt/strata/engine.
-WORKDIR /opt/strata/terminal
+# terminal/ and engine_src() resolves the cmake tree at /opt/strata/engine. STRATA_BUILD_POLY
+# defaults ON and the vendored ggml is the default, so neither is passed.
+RUN python3 -m venv .venv \
+    && .venv/bin/pip install --no-cache-dir --upgrade pip \
+    && .venv/bin/pip install --no-cache-dir -r terminal/requirements.txt
 
-# The definition list is setup's own CUDA list for strata-poly (build_engine_poly_cuda): the vendored
-# ggml is the default, so no STRATA_GGML_DIR is passed. STRATA_BUILD_POLY defaults ON.
-RUN CUDA_ARCHITECTURES="$CUDA_ARCHITECTURES" BUILD_VISION="$BUILD_VISION" /opt/strata/.venv/bin/python - <<'PYEOF'
+WORKDIR /opt/strata/terminal
+RUN CUDA_ARCHITECTURES="$CUDA_ARCHITECTURES" /opt/strata/.venv/bin/python - <<'PYEOF'
 import json, os, shutil
 import setup
 
@@ -75,13 +65,28 @@ meta = {"source": "local", "version": setup.source_version(), "archs": archs,
 print("strata-poly built:", eng / setup.POLY_EXE)
 PYEOF
 
-WORKDIR /opt/strata
 RUN rm -rf terminal/build-cuda
+
+FROM docker.io/nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu${UBUNTU_VERSION}
+
+LABEL org.opencontainers.image.title="PolyStrata (CUDA)" \
+      org.opencontainers.image.source="https://github.com/simplexai-labs/PolyStrata"
+
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 LANG=C.UTF-8 STRATA_EXECV=1 BACKEND=cuda \
+    PYTHONPATH=/opt/strata/terminal
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl libatomic1 libgomp1 python3 python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/strata
+COPY --from=build /opt/strata /opt/strata
+RUN chmod +x setup.sh tools/docker/entrypoint.sh \
+    && test -x terminal/engine-poly/strata-poly
 
 VOLUME ["/data"]
 EXPOSE 8080
 
-# /health is answered before the API key gate, so it works with or without one.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=600s --retries=3 \
   CMD curl -fs "http://127.0.0.1:${PORT:-8080}/health" || exit 1
 
