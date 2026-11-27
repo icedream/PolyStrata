@@ -113,7 +113,7 @@ os.environ["PATH"] = os.pathsep.join([str(root / "bin"), str(root / "llvm" / "bi
 src = setup.engine_src()          # the cmake tree is /opt/strata/engine; setup.ROOT is terminal/
 setup.cmake_build(src, setup.ROOT / "build-hip", "strata",
     ["-DSTRATA_ENABLE_HIP=ON", "-DSTRATA_ENABLE_CUDA=OFF", "-DSTRATA_Q6K_EXPERTS=ON", "-DSTRATA_MMQ_KQUANTS=ON", "-DSTRATA_BUILD_TESTS=OFF",
-     "-DSTRATA_PREFILL_MMQ=ON", "-DCMAKE_HIP_ARCHITECTURES=" + ";".join(archs),
+     "-DSTRATA_BUILD_POLY=ON", "-DSTRATA_PREFILL_MMQ=ON", "-DCMAKE_HIP_ARCHITECTURES=" + ";".join(archs),
      f"-DCMAKE_HIP_COMPILER={root / 'llvm' / 'bin' / 'clang++'}",
      f"-DCMAKE_HIP_COMPILER_ROCM_ROOT={root}",
      "-DCMAKE_PREFIX_PATH=" + ";".join([str(root), *libs]),
@@ -122,9 +122,22 @@ setup.cmake_build(src, setup.ROOT / "build-hip", "strata",
 
 setup.cmake_build(src, setup.ROOT / "build-hip", "tune_hipblaslt", [], None, "")
 
+# strata-poly is the engine the Inkling 2 Mini family runs on (setup's "engine": "poly" for it), and
+# cmake/strata_poly.cmake builds it for HIP as well as CUDA. Upstream's Dockerfile builds the qwen
+# engine only, so an image without this target cannot serve the model it is being built for.
+setup.cmake_build(src, setup.ROOT / "build-hip", "strata-poly",
+    ["-DSTRATA_ENABLE_HIP=ON", "-DSTRATA_ENABLE_CUDA=OFF", "-DSTRATA_Q6K_EXPERTS=ON", "-DSTRATA_MMQ_KQUANTS=ON", "-DSTRATA_BUILD_TESTS=OFF",
+     "-DSTRATA_BUILD_POLY=ON", "-DCMAKE_HIP_ARCHITECTURES=" + ";".join(archs),
+     f"-DCMAKE_HIP_COMPILER={root / 'llvm' / 'bin' / 'clang++'}",
+     f"-DCMAKE_HIP_COMPILER_ROCM_ROOT={root}",
+     "-DCMAKE_PREFIX_PATH=" + ";".join([str(root), *libs]),
+     f"-DCMAKE_HIP_FLAGS=--rocm-path={root} --rocm-device-lib-path={bitcode}",
+     f"-DSTRATA_GGML_DIR={llama}"], None, "")
+
 eng = setup.ROOT / "engine"
 eng.mkdir(exist_ok=True)
 shutil.copy2(setup.ROOT / "build-hip" / setup.EXE, eng / setup.EXE)
+shutil.copy2(setup.ROOT / "build-hip" / setup.POLY_EXE, eng / setup.POLY_EXE)
 if (setup.ROOT / "build-hip" / setup.KQ_LIB).exists():      # the K-quant MMQ prompt library (UD-Q4/Q5/Q6_K_XL files)
     shutil.copy2(setup.ROOT / "build-hip" / setup.KQ_LIB, eng / setup.KQ_LIB)
 shutil.copy2(setup.ROOT / "build-hip" / "tune_hipblaslt", eng / "tune_hipblaslt")
