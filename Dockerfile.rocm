@@ -110,7 +110,8 @@ os.environ.update({"HIP_PLATFORM": "amd", "HIP_COMPILER": "clang", "HIP_RUNTIME"
 os.environ["LD_LIBRARY_PATH"] = os.pathsep.join(libs + [os.environ.get("LD_LIBRARY_PATH", "")]).rstrip(os.pathsep)
 os.environ["PATH"] = os.pathsep.join([str(root / "bin"), str(root / "llvm" / "bin"), os.environ.get("PATH", "")])
 
-setup.cmake_build(setup.ROOT, setup.ROOT / "build-hip", "strata",
+src = setup.engine_src()          # the cmake tree is /opt/strata/engine; setup.ROOT is terminal/
+setup.cmake_build(src, setup.ROOT / "build-hip", "strata",
     ["-DSTRATA_ENABLE_HIP=ON", "-DSTRATA_ENABLE_CUDA=OFF", "-DSTRATA_Q6K_EXPERTS=ON", "-DSTRATA_MMQ_KQUANTS=ON", "-DSTRATA_BUILD_TESTS=OFF",
      "-DSTRATA_PREFILL_MMQ=ON", "-DCMAKE_HIP_ARCHITECTURES=" + ";".join(archs),
      f"-DCMAKE_HIP_COMPILER={root / 'llvm' / 'bin' / 'clang++'}",
@@ -119,7 +120,7 @@ setup.cmake_build(setup.ROOT, setup.ROOT / "build-hip", "strata",
      f"-DCMAKE_HIP_FLAGS=--rocm-path={root} --rocm-device-lib-path={bitcode}",
      f"-DSTRATA_GGML_DIR={llama}"], None, "")
 
-setup.cmake_build(setup.ROOT, setup.ROOT / "build-hip", "tune_hipblaslt", [], None, "")
+setup.cmake_build(src, setup.ROOT / "build-hip", "tune_hipblaslt", [], None, "")
 
 eng = setup.ROOT / "engine"
 eng.mkdir(exist_ok=True)
@@ -131,7 +132,7 @@ meta = {"source": "local-hip", "backend": "hip", "version": setup.source_version
         "vision": "none", "lib_dirs": libs, "src": setup.source_hash(setup.ENGINE_SOURCES),
         "vision_src": setup.source_hash(setup.VISION_SOURCES)}
 if os.environ.get("BUILD_VISION", "1") == "1":
-    setup.cmake_build(setup.ROOT / "tools" / "vision", setup.ROOT / "build-vision", "strata-vision",
+    setup.cmake_build(setup.ROOT.parent / "tools" / "vision", setup.ROOT / "build-vision", "strata-vision",
         [f"-DLLAMA_DIR={llama}", "-DSTRATA_VISION_CUDA=OFF"], None, "")
     shutil.copy2(setup.ROOT / "build-vision" / "bin" / setup.VEXE, eng / setup.VEXE)
     meta["vision"] = "cpu"
