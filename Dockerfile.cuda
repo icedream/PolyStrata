@@ -54,6 +54,14 @@ setup.cmake_build(src, setup.ROOT / "build-cuda", "strata-poly",
      "-DCMAKE_CUDA_ARCHITECTURES=" + ";".join(archs),
      f"-DCMAKE_CUDA_COMPILER={nvcc}", "-DSTRATA_PORTABLE=OFF"], None, "")
 
+# The qwen engine as well: PolyStrata's setup refuses to start a model when no engine component is
+# installed, Inkling included, and the component manifest below lists both binaries.
+setup.cmake_build(src, setup.ROOT / "build-cuda", "strata",
+    ["-DSTRATA_ENABLE_CUDA=ON", "-DSTRATA_ENABLE_HIP=OFF", "-DSTRATA_BUILD_TESTS=OFF",
+     "-DSTRATA_Q6K_EXPERTS=ON", "-DSTRATA_MMQ_KQUANTS=ON",
+     "-DCMAKE_CUDA_ARCHITECTURES=" + ";".join(archs),
+     f"-DCMAKE_CUDA_COMPILER={nvcc}", "-DSTRATA_PORTABLE=OFF"], None, "")
+
 eng = setup.ROOT / setup.ENGINE_POLY_DIR
 eng.mkdir(exist_ok=True)
 shutil.copy2(setup.ROOT / "build-cuda" / setup.POLY_EXE, eng / setup.POLY_EXE)
@@ -62,7 +70,27 @@ meta = {"source": "local", "version": setup.source_version(), "archs": archs,
         "cuda_dirs": [d for d in ("/usr/local/cuda/bin", "/usr/local/cuda/lib64") if os.path.isdir(d)],
         "src": setup.source_hash(setup.ENGINE_SOURCES), "vision": "none", "vision_src": None}
 (eng / "BUILD.json").write_text(json.dumps(meta, indent=1))
-print("strata-poly built:", eng / setup.POLY_EXE)
+
+# The engine component package PolyStrata's setup looks for (.local/share/polystrata/components/engine/
+# <folder>): a manifest with every file's size and SHA-256, an entrypoint, and no signature (their
+# verifier is a hook, and an unsigned package loads unless STRATA_REQUIRE_SIGNED_COMPONENTS=1).
+comp = setup.ROOT / ".local" / "share" / "polystrata" / "components" / "engine" / f"{setup.source_version()}-linux-x86_64-cuda"
+comp.mkdir(parents=True, exist_ok=True)
+shutil.copy2(setup.ROOT / "build-cuda" / setup.EXE, comp / setup.EXE)
+shutil.copy2(setup.ROOT / "build-cuda" / setup.POLY_EXE, comp / setup.POLY_EXE)
+files = []
+for name in (setup.EXE, setup.POLY_EXE):
+    data = (comp / name).read_bytes()
+    files.append({"path": name, "sha256": __import__("hashlib").sha256(data).hexdigest(), "bytes": len(data)})
+manifest = {
+    "schema_version": 2, "id": "strata-engine", "name": "strata-engine",
+    "version": setup.source_version(), "platform": "linux-x86_64", "backend": "cuda",
+    "archs": [f"sm_{a}" if not a.startswith("sm_") else a for a in archs],
+    "build_id": f"local-cuda{os.environ.get('CUDA_VERSION', '')}".strip(), "min_runtime": "0.2.20",
+    "entrypoint": setup.EXE, "files": files, "signature": None,
+}
+(comp / "engine-component.json").write_text(json.dumps(manifest, indent=1))
+print("strata-poly built:", eng / setup.POLY_EXE, "component:", comp)
 PYEOF
 
 RUN rm -rf terminal/build-cuda
